@@ -1,0 +1,52 @@
+{
+  "name": "glb2svg",
+  "version": "0.1.0",
+  "description": "Headless GLB-to-SVG renderer that produces deterministic, themeable fallback artwork without a browser or GPU.",
+  "type": "module",
+  "license": "MIT",
+  "author": "m1chlcz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m1chlcz/glb2svg.git"
+  },
+  "homepage": "https://github.com/m1chlcz/glb2svg#readme",
+  "bugs": "https://github.com/m1chlcz/glb2svg/issues",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "glb2svg": "./bin/glb2svg.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "4.4.2",
+    "@gltf-transform/extensions": "4.4.2",
+    "draco3dgltf": "1.5.7",
+    "happy-dom": "20.11.1",
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "@types/three": "0.185.4",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}
