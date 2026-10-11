@@ -102,7 +102,7 @@ function parseArguments(argv: string[]): ParsedArguments {
         if (!isViewName(candidate)) {
           throw new UsageError(`Unknown view: ${candidate}.`);
         }
-        if (!views.includes(candidate)) views.push(candidate);
+        views.push(candidate);
       }
       if (views.length === 0) {
         throw new UsageError("--views expects at least one view.");

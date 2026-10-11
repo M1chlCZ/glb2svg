@@ -44,17 +44,19 @@ export type ViewName = "front" | "top" | "side" | "iso";
  *
  * `single` draws one full-size view. `sheet` tiles the requested views in a
  * grid with a label per panel. Requesting more than one view always composes a
- * sheet, even when `single` is selected.
+ * sheet, even when the caller selects `single`.
  */
 export type RenderLayout = "single" | "sheet";
 
 /**
- * The views used when {@link RenderOptions.views} is not set.
+ * The views that the renderer uses when the caller omits
+ * {@link RenderOptions.views}.
  */
 export const DEFAULT_VIEWS: readonly ViewName[] = Object.freeze(["iso"] as const);
 
 /**
- * The layout used when {@link RenderOptions.layout} is not set.
+ * The layout that the renderer uses when the caller omits
+ * {@link RenderOptions.layout}.
  */
 export const DEFAULT_LAYOUT: RenderLayout = "single";
 
@@ -111,8 +113,8 @@ export interface RenderOptions {
   semanticKeys?: Partial<SemanticKeyMap>;
   /**
    * Views to render from orthographic cameras. Each entry adds a panel to a
-   * sheet. Defaults to `["iso"]`. When more than one view is requested the
-   * renderer composes a sheet even if `layout` is `single`.
+   * sheet. Defaults to `["iso"]`. When the caller requests more than one
+   * view, the renderer composes a sheet even if `layout` is `single`.
    */
   views?: ViewName[];
   /**
@@ -207,8 +209,8 @@ function presentationFor(model: THREE.Object3D): THREE.Group {
   return presentation;
 }
 
-function cameraFor(): THREE.OrthographicCamera {
-  const camera = new THREE.OrthographicCamera(
+function orthographicCamera(): THREE.OrthographicCamera {
+  return new THREE.OrthographicCamera(
     -1.025,
     1.025,
     1.025,
@@ -216,6 +218,10 @@ function cameraFor(): THREE.OrthographicCamera {
     0.01,
     20,
   );
+}
+
+function cameraFor(): THREE.OrthographicCamera {
+  const camera = orthographicCamera();
   camera.position.set(2.45, 1.45, 3.25);
   camera.lookAt(0, -0.02, 0);
   camera.updateProjectionMatrix();
@@ -228,14 +234,7 @@ function cameraForView(
 ): THREE.OrthographicCamera {
   if (view === "iso") return cameraFor();
   const center = fittedBounds.getCenter(new THREE.Vector3());
-  const camera = new THREE.OrthographicCamera(
-    -1.025,
-    1.025,
-    1.025,
-    -1.025,
-    0.01,
-    20,
-  );
+  const camera = orthographicCamera();
   const distance = 5;
   if (view === "front") {
     camera.position.set(center.x, center.y, center.z + distance);
@@ -354,11 +353,13 @@ const AXIS_COMPONENT: Record<DimensionAxis, "x" | "y" | "z"> = {
   depth: "z",
 };
 
-const DIMENSION_AXES_BY_VIEW: Record<ViewName, readonly DimensionAxis[]> = {
+const DIMENSION_AXES_BY_VIEW: Record<
+  Exclude<ViewName, "iso">,
+  readonly DimensionAxis[]
+> = {
   front: ["width", "height"],
   side: ["depth", "height"],
   top: ["width", "depth"],
-  iso: ["width", "height", "depth"],
 };
 
 function formatCoordinate(value: number): string {
