@@ -1,6 +1,6 @@
 {
   "name": "glb2svg",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Headless GLB-to-SVG renderer that produces deterministic, themeable fallback artwork without a browser or GPU.",
   "type": "module",
   "license": "MIT",
@@ -38,14 +38,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gltf-transform/core": "4.4.2",
-    "@gltf-transform/extensions": "4.4.2",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
     "draco3dgltf": "1.5.7",
-    "happy-dom": "20.11.1",
+    "happy-dom": "^20.14.6",
     "three": "^0.185.0"
   },
   "devDependencies": {
-    "@types/node": "26.2.0",
+    "@types/node": "^26.6.5",
     "@types/three": "0.185.4",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
