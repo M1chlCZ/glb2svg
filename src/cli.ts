@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { renderGlbToSvg, type RenderOptions } from "./render.js";
+import { renderGlbToSvg, isViewName, type RenderOptions, type ViewName } from "./render.js";
 
 /**
  * Sinks that the CLI writes to. Tests can supply collectors instead of the
@@ -28,6 +28,9 @@ Options:
   --css-variable-prefix <prefix>  CSS custom-property prefix (default: --glb2svg-)
   --width <pixels>                SVG viewBox width (default: 512)
   --height <pixels>               SVG viewBox height (default: 512)
+  --views <list>                  Views to render: front,top,side,iso (default: iso)
+  --layout <mode>                 Panel layout: single or sheet (default: single)
+  --dimensions                    Draw width, height and depth dimensions
   --help                          Show this message`;
 
 const defaultIo: CliIo = {
@@ -91,6 +94,33 @@ function parseArguments(argv: string[]): ParsedArguments {
       if (name === "--width") options.width = pixels;
       else options.height = pixels;
       index = next;
+    } else if (name === "--views") {
+      const [value, next] = optionValue(inlineValue, argv, index, name);
+      const views: ViewName[] = [];
+      for (const candidate of value.split(",").map((part) => part.trim())) {
+        if (candidate === "") continue;
+        if (!isViewName(candidate)) {
+          throw new UsageError(`Unknown view: ${candidate}.`);
+        }
+        if (!views.includes(candidate)) views.push(candidate);
+      }
+      if (views.length === 0) {
+        throw new UsageError("--views expects at least one view.");
+      }
+      options.views = views;
+      index = next;
+    } else if (name === "--layout") {
+      const [value, next] = optionValue(inlineValue, argv, index, name);
+      if (value !== "single" && value !== "sheet") {
+        throw new UsageError("--layout expects single or sheet.");
+      }
+      options.layout = value;
+      index = next;
+    } else if (name === "--dimensions") {
+      if (inlineValue !== undefined) {
+        throw new UsageError("--dimensions takes no value.");
+      }
+      options.showDimensions = true;
     } else {
       throw new UsageError(`Unknown option: ${argument}`);
     }

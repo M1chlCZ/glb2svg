@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderGlbToSvg } from "../src/index.js";
+import { renderGlbToSvg, type RenderOptions } from "../src/index.js";
 import {
   createCustomKeyFixture,
   createGlb,
@@ -10,6 +10,10 @@ const fixture = createStudioFixture();
 
 function countPaths(svg: string): number {
   return (svg.match(/<path/g) ?? []).length;
+}
+
+function countOccurrences(svg: string, pattern: RegExp): number {
+  return (svg.match(pattern) ?? []).length;
 }
 
 describe("renderGlbToSvg", () => {
@@ -97,5 +101,86 @@ describe("renderGlbToSvg", () => {
     expect(withOverride).toContain("var(--part-body-0)");
     expect(withOverride).not.toContain("glb2svg-body");
     expect(countPaths(withOverride)).toBeLessThan(countPaths(withoutOverride));
+  });
+
+  it("keeps the single-view output byte-identical when views is unset", async () => {
+    const defaultOutput = await renderGlbToSvg(fixture);
+    const explicitSingle = await renderGlbToSvg(fixture, {
+      views: ["iso"],
+      layout: "single",
+    });
+    expect(explicitSingle).toBe(defaultOutput);
+  });
+
+  it("composes a labelled sheet with four views in a grid", async () => {
+    const svg = await renderGlbToSvg(fixture, {
+      views: ["front", "top", "side", "iso"],
+      layout: "sheet",
+    });
+    expect(countOccurrences(svg, /data-view="/g)).toBe(4);
+    expect(svg).toContain('data-layout="sheet"');
+    expect(svg).toContain('class="glb2svg-panel"');
+    for (const view of ["front", "top", "side", "iso"] as const) {
+      expect(svg).toContain(`data-view="${view}"`);
+      expect(svg).toContain(`data-view-label="${view}"`);
+      expect(svg).toContain(`>${view}</text>`);
+    }
+  });
+
+  it("composes a sheet when several views are requested without a layout", async () => {
+    const svg = await renderGlbToSvg(fixture, { views: ["front", "side"] });
+    expect(countOccurrences(svg, /data-view="/g)).toBe(2);
+    expect(svg).toContain('data-view="front"');
+    expect(svg).toContain('data-view="side"');
+  });
+
+  it("renders one requested view without sheet markup", async () => {
+    const svg = await renderGlbToSvg(fixture, { views: ["front"] });
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(svg).not.toContain("data-view=");
+    expect(svg).not.toContain("glb2svg-sheet");
+    expect(countPaths(svg)).toBeGreaterThan(0);
+  });
+
+  it("adds dimension labels only when showDimensions is enabled", async () => {
+    const plain = await renderGlbToSvg(fixture);
+    const withDimensions = await renderGlbToSvg(fixture, {
+      showDimensions: true,
+    });
+    expect(plain).not.toMatch(/\d+(?:\.\d+)? mm/);
+    expect(withDimensions).toMatch(/\d+(?:\.\d+)? mm/);
+    expect(withDimensions).toContain("1500 mm");
+    expect(withDimensions).toContain('data-dimension="width"');
+    expect(withDimensions).toContain('data-dimension="height"');
+    expect(withDimensions).toContain('data-dimension="depth"');
+  });
+
+  it("draws the matching dimension pair in each sheet panel", async () => {
+    const svg = await renderGlbToSvg(fixture, {
+      views: ["front", "side"],
+      layout: "sheet",
+      showDimensions: true,
+    });
+    expect(countOccurrences(svg, /data-dimension="/g)).toBe(4);
+    const sideStart = svg.indexOf('data-view="side"');
+    const frontPanel = svg.slice(svg.indexOf('data-view="front"'), sideStart);
+    const sidePanel = svg.slice(sideStart);
+    expect(frontPanel).toContain('data-dimension="width"');
+    expect(frontPanel).toContain('data-dimension="height"');
+    expect(frontPanel).not.toContain('data-dimension="depth"');
+    expect(sidePanel).toContain('data-dimension="depth"');
+    expect(sidePanel).toContain('data-dimension="height"');
+    expect(sidePanel).not.toContain('data-dimension="width"');
+  });
+
+  it("produces byte-identical spec sheets across two runs", async () => {
+    const options: RenderOptions = {
+      views: ["front", "top", "side", "iso"],
+      layout: "sheet",
+      showDimensions: true,
+    };
+    const first = await renderGlbToSvg(fixture, options);
+    const second = await renderGlbToSvg(fixture, options);
+    expect(first).toBe(second);
   });
 });

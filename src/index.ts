@@ -2,11 +2,19 @@ export {
   DEFAULT_CLASS_PREFIX,
   DEFAULT_CSS_VARIABLE_PREFIX,
   DEFAULT_HEIGHT,
+  DEFAULT_LAYOUT,
   DEFAULT_SEMANTIC_KEYS,
+  DEFAULT_VIEWS,
   DEFAULT_WIDTH,
+  isViewName,
   renderGlbToSvg,
 } from "./render.js";
-export type { RenderOptions, SemanticKeyMap } from "./render.js";
+export type {
+  RenderLayout,
+  RenderOptions,
+  SemanticKeyMap,
+  ViewName,
+} from "./render.js";
 export {
   STUDIO_SEMANTIC_ROLE_KEY,
   STUDIO_SEMANTIC_ROLES,

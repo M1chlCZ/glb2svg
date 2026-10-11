@@ -45,6 +45,8 @@ Node.js 22 or later is required.
 ```sh
 npx glb2svg model.glb model.svg
 npx glb2svg model.glb model.svg --class-prefix brand- --width 256 --height 256
+npx glb2svg model.glb sheet.svg --views front,top,side,iso --layout sheet
+npx glb2svg model.glb sheet.svg --views front,side --dimensions
 ```
 
 The CLI writes the SVG through a temporary file in the target directory and an
@@ -54,8 +56,11 @@ atomic rename. It never opens a network connection.
 | --- | --- | --- |
 | `--class-prefix <prefix>` | `glb2svg-` | Prefix for the generated CSS classes. |
 | `--css-variable-prefix <prefix>` | `--glb2svg-` | Prefix for the generated CSS custom properties. A missing `--` is added. |
-| `--width <pixels>` | `512` | SVG viewBox width. |
-| `--height <pixels>` | `512` | SVG viewBox height. |
+| `--width <pixels>` | `512` | SVG viewBox width per panel. |
+| `--height <pixels>` | `512` | SVG viewBox height per panel. |
+| `--views <list>` | `iso` | Comma-separated views: `front`, `top`, `side`, `iso`. More than one view composes a sheet. |
+| `--layout <mode>` | `single` | `single` renders one full-size view, `sheet` tiles the views with labels. |
+| `--dimensions` | off | Draw width, height and depth dimension lines with millimetre labels. |
 
 Each prefix is written directly before the generated name. Include a trailing
 separator in the prefix when you want one; the defaults do (`glb2svg-` and
@@ -66,6 +71,56 @@ Exit codes:
 - `0` on success.
 - `1` when the input cannot be read or rendered.
 - `2` on usage errors.
+
+## Spec sheet
+
+The renderer can draw the same model from four fixed orthographic directions
+and tile the results in one SVG document.
+
+| View | Direction |
+| --- | --- |
+| `front` | Looks along the negative Z axis. |
+| `top` | Looks down the negative Y axis. |
+| `side` | Looks along the negative X axis. |
+| `iso` | The fixed three-quarter camera of the default single view. |
+
+The `views` option lists the panels in order and defaults to `["iso"]`. The
+`layout` option defaults to `single`, which keeps the original full-size
+output for one view. Requesting more than one view always composes a sheet,
+even when `layout` is `single`. A sheet arranges the panels in a grid: two
+columns for two to four views, then a new row every two panels. The sheet
+viewBox grows with the grid, and every panel keeps the requested `width` and
+`height`.
+
+Each panel is a `<g class="glb2svg-panel" data-view="...">` element that holds
+the rendered paths, a small view label, and a shared light background when the
+source renderer emits one. Set `showDimensions` to add dimension lines with
+arrow ends and text labels. Isometric panels show width, height and depth.
+Front and side panels show width or depth with the height, and top panels show
+width and depth.
+
+Dimension labels report the fitted model bounds in millimetres: one scene unit
+equals one metre, and the longest side measures 1.5 units. The renderer does
+not add external fonts or images, so the sheet stays self-contained.
+
+CLI and library examples:
+
+```sh
+npx glb2svg model.glb sheet.svg --views front,top,side,iso --layout sheet --dimensions
+```
+
+```ts
+import { readFile, writeFile } from "node:fs/promises";
+import { renderGlbToSvg } from "glb2svg";
+
+const input = await readFile("model.glb");
+const svg = await renderGlbToSvg(input, {
+  views: ["front", "top", "side", "iso"],
+  layout: "sheet",
+  showDimensions: true,
+});
+await writeFile("sheet.svg", svg);
+```
 
 ## Library
 
@@ -92,9 +147,12 @@ throws an `Error` when the input is not a valid GLB asset.
 | --- | --- | --- | --- |
 | `classPrefix` | `string` | `glb2svg-` | Prefix for the generated CSS classes. |
 | `cssVariablePrefix` | `string` | `--glb2svg-` | Prefix for the generated CSS custom properties. A missing `--` is added. |
-| `width` | `number` | `512` | SVG viewBox width. |
-| `height` | `number` | `512` | SVG viewBox height. |
+| `width` | `number` | `512` | SVG viewBox width per panel. |
+| `height` | `number` | `512` | SVG viewBox height per panel. |
 | `semanticKeys.semanticRole` | `string` | `studio_semantic_role` | The `userData` key that holds the semantic role. |
+| `views` | `ViewName[]` | `["iso"]` | Views to render: `front`, `top`, `side`, `iso`. More than one view composes a sheet. |
+| `layout` | `"single" \| "sheet"` | `"single"` | One full-size view or a labelled grid of panels. |
+| `showDimensions` | `boolean` | `false` | Draw width, height and depth dimension lines with millimetre labels. |
 
 The package also exports `STUDIO_SEMANTIC_ROLE_KEY` and
 `STUDIO_SEMANTIC_ROLES` for callers that author model metadata.
@@ -136,7 +194,11 @@ fallback:
 ```
 
 When you change `classPrefix` or `cssVariablePrefix`, the class names and the
-custom property names change together.
+custom property names change together. Spec sheets also use
+`glb2svg-panel`, `glb2svg-panel-background`, `glb2svg-view-label`,
+`glb2svg-dimension-text`, `glb2svg-dimension-line`,
+`glb2svg-dimension-extension` and `glb2svg-dimension-arrow`, with the same
+prefix rule.
 
 ## Determinism and limitations
 
@@ -150,11 +212,14 @@ Limitations:
 - Flat Lambert shading only. No physically based rendering.
 - No textures, no transparency, no vertex colors.
 - No shadows and no ambient occlusion.
-- One fixed three-quarter orthographic camera. The model is rotated from STEP
-  Z-up to Y-up, scaled so its longest side measures 1.5 units, centered on X
-  and Z and placed on the ground plane.
+- One fixed three-quarter orthographic camera, or the four fixed orthographic
+  directions of a spec sheet. The model is rotated from STEP Z-up to Y-up,
+  scaled so its longest side measures 1.5 units, centered on X and Z and
+  placed on the ground plane.
 - The fallback shows one material color per semantic role, not the live
   colors of a configured product.
+- Dimension labels describe the fitted presentation, not the source CAD
+  dimensions.
 
 ## Development
 
