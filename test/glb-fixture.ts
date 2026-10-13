@@ -4,26 +4,40 @@ const JSON_CHUNK_TYPE = 0x4e4f534a;
 const BIN_CHUNK_TYPE = 0x004e4942;
 
 type Vec3 = [number, number, number];
+type Vec4 = [number, number, number, number];
+
+interface CommonPart {
+  name: string;
+  role: string;
+  /**
+   * Base color factor written as the primitive material. `null` writes a
+   * material without a factor; omitting the field writes no material.
+   */
+  baseColorFactor?: Vec4 | null;
+  /**
+   * Parts that share the same mesh name become primitives of one mesh.
+   */
+  mesh?: string;
+}
 
 /**
- * One mesh that the fixture builder writes into the generated GLB.
+ * One part that the fixture builder writes into the generated GLB. A part
+ * becomes its own mesh node unless several parts share a `mesh` name.
  */
-export type GlbPart =
-  | {
-      kind: "box";
-      name: string;
-      role: string;
-      min: Vec3;
-      max: Vec3;
-    }
-  | {
-      kind: "quad";
-      name: string;
-      role: string;
-      center: Vec3;
-      normal: Vec3;
-      size: number;
-    };
+export type GlbPart = CommonPart &
+  (
+    | {
+        kind: "box";
+        min: Vec3;
+        max: Vec3;
+      }
+    | {
+        kind: "quad";
+        center: Vec3;
+        normal: Vec3;
+        size: number;
+      }
+  );
 
 function normalize(vector: Vec3): Vec3 {
   const length = Math.hypot(vector[0], vector[1], vector[2]) || 1;
@@ -95,7 +109,8 @@ function positionsFor(part: GlbPart): number[] {
 
 /**
  * Builds a minimal, valid GLB from the given parts. Each part becomes one
- * mesh node whose `extras` carry the semantic role under the requested key.
+ * mesh node whose `extras` carry the semantic role under the requested key,
+ * unless several parts share a `mesh` name and become primitives of one mesh.
  */
 export function createGlb(
   parts: GlbPart[],
@@ -136,21 +151,57 @@ export function createGlb(
     byteLength += bytes.byteLength;
   }
 
+  const materials: Array<Record<string, unknown>> = [];
+  const materialIndexes = parts.map((part) => {
+    if (part.baseColorFactor === undefined) return undefined;
+    materials.push(
+      part.baseColorFactor === null
+        ? { pbrMetallicRoughness: {} }
+        : { pbrMetallicRoughness: { baseColorFactor: part.baseColorFactor } },
+    );
+    return materials.length - 1;
+  });
+  const groups: Array<{ name: string; role: string; indexes: number[] }> = [];
+  const groupsByMesh = new Map<
+    string,
+    { name: string; role: string; indexes: number[] }
+  >();
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
+    if (part.mesh === undefined) {
+      groups.push({ name: part.name, role: part.role, indexes: [index] });
+      continue;
+    }
+    let group = groupsByMesh.get(part.mesh);
+    if (group === undefined) {
+      group = { name: part.mesh, role: part.role, indexes: [] };
+      groupsByMesh.set(part.mesh, group);
+      groups.push(group);
+    }
+    group.indexes.push(index);
+  }
+
   const json = JSON.stringify({
     asset: { version: "2.0", generator: "glb2svg tests" },
     scene: 0,
-    scenes: [{ nodes: parts.map((_, index) => index) }],
-    nodes: parts.map((part, index) => ({
+    scenes: [{ nodes: groups.map((_, index) => index) }],
+    nodes: groups.map((group, index) => ({
       mesh: index,
-      name: part.name,
-      extras: { [roleKey]: part.role },
+      name: group.name,
+      extras: { [roleKey]: group.role },
     })),
-    meshes: parts.map((_, index) => ({
-      primitives: [{ attributes: { POSITION: index } }],
+    meshes: groups.map((group) => ({
+      primitives: group.indexes.map((partIndex) => {
+        const material = materialIndexes[partIndex];
+        return material === undefined
+          ? { attributes: { POSITION: partIndex } }
+          : { attributes: { POSITION: partIndex }, material };
+      }),
     })),
     accessors,
     bufferViews,
     buffers: [{ byteLength }],
+    ...(materials.length > 0 ? { materials } : {}),
   });
   const jsonBytes = new TextEncoder().encode(json);
   const jsonPadding = (4 - (jsonBytes.length % 4)) % 4;
@@ -238,6 +289,73 @@ export function createStudioFixture(): Uint8Array {
       center: [0.55, 0.25, 0.7],
       normal: sourceNormal,
       size: 0.5,
+    },
+  ]);
+}
+
+/**
+ * Builds a fixture with two material-colored parts, a material-less part and
+ * a part whose material omits the base color factor.
+ */
+export function createMaterialFixture(): Uint8Array {
+  return createGlb([
+    {
+      kind: "box",
+      name: "body",
+      role: "body",
+      min: [0, 0, 0],
+      max: [0.5, 0.5, 0.5],
+      baseColorFactor: [0.5, 0, 0, 1],
+    },
+    {
+      kind: "box",
+      name: "lid",
+      role: "lid",
+      min: [0.6, 0, 0],
+      max: [1.1, 0.5, 0.5],
+      baseColorFactor: [0, 0.5, 1, 1],
+    },
+    {
+      kind: "box",
+      name: "bare",
+      role: "body",
+      min: [1.2, 0, 0],
+      max: [1.5, 0.3, 0.3],
+    },
+    {
+      kind: "box",
+      name: "defaulted",
+      role: "lid",
+      min: [1.6, 0, 0],
+      max: [2.1, 0.5, 0.5],
+      baseColorFactor: null,
+    },
+  ]);
+}
+
+/**
+ * Builds a fixture whose single mesh carries two primitives with distinct
+ * material colors.
+ */
+export function createMultiPrimitiveFixture(): Uint8Array {
+  return createGlb([
+    {
+      kind: "box",
+      name: "upper",
+      role: "body",
+      mesh: "assembly",
+      min: [0, 0, 0],
+      max: [0.5, 0.5, 0.5],
+      baseColorFactor: [0.5, 0, 0, 1],
+    },
+    {
+      kind: "box",
+      name: "lower",
+      role: "body",
+      mesh: "assembly",
+      min: [0, 0, 0.6],
+      max: [0.5, 0.5, 1.1],
+      baseColorFactor: [0, 0.5, 1, 1],
     },
   ]);
 }

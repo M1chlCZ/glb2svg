@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { isFillMode } from "./fills.js";
 import { renderGlbToSvg, isViewName, type RenderOptions, type ViewName } from "./render.js";
 
 /**
@@ -31,6 +32,7 @@ Options:
   --views <list>                  Views to render: front,top,side,iso (default: iso)
   --layout <mode>                 Panel layout: single or sheet (default: single)
   --dimensions                    Draw width, height and depth dimensions
+  --fills <mode>                  Fill source: role or material (default: role)
   --help                          Show this message`;
 
 const defaultIo: CliIo = {
@@ -121,6 +123,13 @@ function parseArguments(argv: string[]): ParsedArguments {
         throw new UsageError("--dimensions takes no value.");
       }
       options.showDimensions = true;
+    } else if (name === "--fills") {
+      const [value, next] = optionValue(inlineValue, argv, index, name);
+      if (!isFillMode(value)) {
+        throw new UsageError("--fills expects role or material.");
+      }
+      options.fills = value;
+      index = next;
     } else {
       throw new UsageError(`Unknown option: ${argument}`);
     }

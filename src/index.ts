@@ -16,6 +16,13 @@ export type {
   ViewName,
 } from "./render.js";
 export {
+  DEFAULT_FILL_MODE,
+  isFillMode,
+  linearRgbaToHex,
+  linearToSrgb,
+} from "./fills.js";
+export type { FillMode } from "./fills.js";
+export {
   STUDIO_SEMANTIC_ROLE_KEY,
   STUDIO_SEMANTIC_ROLES,
 } from "./user-data.js";

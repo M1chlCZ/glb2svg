@@ -5,6 +5,12 @@ import { Window } from "happy-dom";
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SVGRenderer } from "three/examples/jsm/renderers/SVGRenderer.js";
+import {
+  DEFAULT_FILL_MODE,
+  readGlbPrimitiveFills,
+  type FillMode,
+  type PrimitiveFills,
+} from "./fills.js";
 import { STUDIO_SEMANTIC_ROLE_KEY } from "./user-data.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -128,6 +134,14 @@ export interface RenderOptions {
    * axis-aligned panels show their matching pair. Defaults to `false`.
    */
   showDimensions?: boolean;
+  /**
+   * Fill source for the rendered paths. `role` keeps the semantic-role colors
+   * with their CSS custom properties. `material` fills each mesh primitive
+   * from its glTF `pbrMetallicRoughness.baseColorFactor` and falls back to
+   * the semantic-role color when a primitive has no usable material. Defaults
+   * to `role`.
+   */
+  fills?: FillMode;
 }
 
 interface ResolvedOptions {
@@ -139,6 +153,7 @@ interface ResolvedOptions {
   views: ViewName[];
   layout: RenderLayout;
   showDimensions: boolean;
+  fills: FillMode;
 }
 
 function resolveOptions(options: RenderOptions): ResolvedOptions {
@@ -160,6 +175,7 @@ function resolveOptions(options: RenderOptions): ResolvedOptions {
         : [...DEFAULT_VIEWS],
     layout: options.layout ?? DEFAULT_LAYOUT,
     showDimensions: options.showDimensions ?? false,
+    fills: options.fills ?? DEFAULT_FILL_MODE,
   };
 }
 
@@ -252,12 +268,23 @@ function cameraForView(
 function classifyPathElements(
   svg: SVGElement,
   options: ResolvedOptions,
+  materialFills: ReadonlyMap<string, string>,
 ): void {
   const { classPrefix } = options;
   for (const path of svg.querySelectorAll("path")) {
     const style = path.getAttribute("style") ?? "";
     const match = style.match(/fill:rgb\((\d+),(\d+),(\d+)\)/);
     if (!match) continue;
+    if (options.fills === "material") {
+      const fill = materialFills.get(
+        `rgb(${match[1]},${match[2]},${match[3]})`,
+      );
+      if (fill !== undefined) {
+        path.setAttribute("fill", fill);
+        path.setAttribute("style", "fill-opacity:1");
+        continue;
+      }
+    }
     const red = Number(match[1]);
     const blue = Number(match[3]);
     const component = red >= blue ? "body" : "lid";
@@ -307,8 +334,9 @@ function classifyPaths(
   svg: SVGElement,
   document: Document,
   options: ResolvedOptions,
+  materialFills: ReadonlyMap<string, string>,
 ): void {
-  classifyPathElements(svg, options);
+  classifyPathElements(svg, options, materialFills);
   const style = document.createElementNS(SVG_NAMESPACE, "style");
   style.textContent = styleText(bandStyleRules(options));
   svg.prepend(style);
@@ -320,17 +348,75 @@ function classifyPaths(
   svg.removeAttribute("height");
 }
 
-function prepareModel(model: THREE.Object3D, semanticRoleKey: string): void {
+interface PrimitiveAssociation {
+  meshes?: number;
+  primitives?: number;
+}
+
+interface AssociationLookup {
+  get(object: THREE.Object3D): unknown;
+}
+
+function primitiveFill(
+  object: THREE.Mesh,
+  associations: AssociationLookup,
+  primitiveFills: PrimitiveFills,
+): string | null {
+  const reference = associations.get(object) as
+    | PrimitiveAssociation
+    | undefined;
+  if (
+    reference === undefined ||
+    reference.meshes === undefined ||
+    reference.primitives === undefined
+  ) {
+    return null;
+  }
+  return primitiveFills[reference.meshes]?.[reference.primitives] ?? null;
+}
+
+function probeHex(index: number): number {
+  const red = 1 + (index % 255);
+  const green = 1 + (Math.floor(index / 255) % 255);
+  const blue = 1 + (Math.floor(index / 65025) % 255);
+  return (red << 16) | (green << 8) | blue;
+}
+
+function prepareModel(
+  model: THREE.Object3D,
+  options: ResolvedOptions,
+  associations: AssociationLookup,
+  primitiveFills: PrimitiveFills,
+): ReadonlyMap<string, string> {
+  const materialFills = new Map<string, string>();
+  let probeIndex = 0;
   model.traverse((object) => {
-    if (object.userData[semanticRoleKey] === "ignore") object.visible = false;
+    if (object.userData[options.semanticKeys.semanticRole] === "ignore") {
+      object.visible = false;
+    }
     if (!(object instanceof THREE.Mesh)) return;
-    const semanticRole = object.userData[semanticRoleKey];
+    if (options.fills === "material") {
+      const fill = primitiveFill(object, associations, primitiveFills);
+      if (fill !== null) {
+        const hex = probeHex(probeIndex);
+        probeIndex += 1;
+        object.material = new THREE.MeshBasicMaterial({ color: hex });
+        materialFills.set(
+          new THREE.Color().setHex(hex).getStyle(THREE.SRGBColorSpace),
+          fill,
+        );
+        return;
+      }
+    }
+    const semanticRole = object.userData[options.semanticKeys.semanticRole];
     const isLid =
-      semanticRole === "lid" || (semanticRole !== "body" && object.name === "lid");
+      semanticRole === "lid" ||
+      (semanticRole !== "body" && object.name === "lid");
     object.material = new THREE.MeshLambertMaterial({
       color: isLid ? 0x0000ff : 0xff0000,
     });
   });
+  return materialFills;
 }
 
 type DimensionAxis = "width" | "height" | "depth";
@@ -805,6 +891,7 @@ function composeSheet(
   resolved: ResolvedOptions,
   scene: THREE.Scene,
   fittedBounds: THREE.Box3,
+  materialFills: ReadonlyMap<string, string>,
 ): string {
   const columns = Math.ceil(Math.sqrt(resolved.views.length));
   const rows = Math.ceil(resolved.views.length / columns);
@@ -813,7 +900,9 @@ function composeSheet(
   const rendered = resolved.views.map((view) =>
     renderView(scene, view, panelWidth, panelHeight, fittedBounds),
   );
-  for (const item of rendered) classifyPathElements(item.svg, resolved);
+  for (const item of rendered) {
+    classifyPathElements(item.svg, resolved, materialFills);
+  }
   const background = rendered
     .map((item) => item.svg.style.backgroundColor)
     .find((color) => color !== "");
@@ -903,6 +992,11 @@ function composeSheet(
  * role) receives the lid color. The `ignore` role hides the object. Every
  * other role, including `hardware`, receives the body color.
  *
+ * Setting {@link RenderOptions.fills} to `material` fills each primitive that
+ * declares a glTF `pbrMetallicRoughness.baseColorFactor` with the converted
+ * sRGB hex of that linear color. Primitives without a usable material keep
+ * the semantic-role color and its CSS custom properties.
+ *
  * With the default options the result is the original single isometric view.
  * Setting {@link RenderOptions.views} to several directions, or
  * {@link RenderOptions.layout} to `sheet`, composes a labelled grid of
@@ -930,6 +1024,8 @@ export async function renderGlbToSvg(
       "draco3d.decoder": await draco3d.createDecoderModule(),
     });
   const gltfDocument = await io.readBinary(input);
+  const primitiveFills =
+    resolved.fills === "material" ? readGlbPrimitiveFills(input) : [];
   for (const extension of gltfDocument.getRoot().listExtensionsUsed()) {
     if (extension.extensionName === "KHR_draco_mesh_compression") {
       extension.dispose();
@@ -944,7 +1040,12 @@ export async function renderGlbToSvg(
     new GLTFLoader().parse(arrayBuffer, "", resolveLoad, reject);
   });
 
-  prepareModel(gltf.scene, resolved.semanticKeys.semanticRole);
+  const materialFills = prepareModel(
+    gltf.scene,
+    resolved,
+    gltf.parser.associations,
+    primitiveFills,
+  );
 
   const presentation = presentationFor(gltf.scene);
   const fittedBounds = new THREE.Box3().setFromObject(presentation);
@@ -963,7 +1064,7 @@ export async function renderGlbToSvg(
       resolved.height,
       fittedBounds,
     );
-    classifyPaths(item.svg, document, resolved);
+    classifyPaths(item.svg, document, resolved, materialFills);
     if (resolved.showDimensions) {
       const style = item.svg.querySelector("style");
       if (style) {
@@ -986,5 +1087,5 @@ export async function renderGlbToSvg(
     return item.svg.outerHTML;
   }
 
-  return composeSheet(document, resolved, scene, fittedBounds);
+  return composeSheet(document, resolved, scene, fittedBounds, materialFills);
 }

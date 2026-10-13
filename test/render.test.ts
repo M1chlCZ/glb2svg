@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderGlbToSvg, type RenderOptions } from "../src/index.js";
 import {
   createCustomKeyFixture,
   createGlb,
+  createMaterialFixture,
+  createMultiPrimitiveFixture,
   createStudioFixture,
 } from "./glb-fixture.js";
 
@@ -110,6 +113,68 @@ describe("renderGlbToSvg", () => {
       layout: "single",
     });
     expect(explicitSingle).toBe(defaultOutput);
+  });
+
+  it("keeps the default role output byte-identical to the pre-fills renderer", async () => {
+    const golden = readFileSync(
+      new URL("./golden/material-role.svg", import.meta.url),
+      "utf8",
+    );
+    expect(await renderGlbToSvg(createMaterialFixture())).toBe(golden);
+    expect(
+      await renderGlbToSvg(createMaterialFixture(), { fills: "role" }),
+    ).toBe(golden);
+  });
+
+  it("fills primitives from their glTF materials in material mode", async () => {
+    const svg = await renderGlbToSvg(createMaterialFixture(), {
+      fills: "material",
+    });
+    expect(svg).toContain('fill="#bc0000"');
+    expect(svg).toContain('fill="#00bcff"');
+    expect(svg).toContain("glb2svg-lid");
+    expect(svg).toContain("var(--glb2svg-body-0)");
+  });
+
+  it("keeps the semantic-role fallback for unusable materials", async () => {
+    const svg = await renderGlbToSvg(createMaterialFixture(), {
+      fills: "material",
+    });
+    const literals = [...new Set(svg.match(/fill="#[0-9a-f]{6}"/g) ?? [])];
+    expect(literals.sort()).toEqual(['fill="#00bcff"', 'fill="#bc0000"']);
+    const classed = (svg.match(/<path [^>]*class="/g) ?? []).length;
+    const filled = (svg.match(/<path [^>]*fill="#/g) ?? []).length;
+    expect(classed).toBeGreaterThan(0);
+    expect(filled).toBeGreaterThan(0);
+    expect(classed + filled).toBe(countPaths(svg));
+    expect(svg).toMatch(/class="glb2svg-body glb2svg-band-\d"/);
+    expect(svg).toMatch(/class="glb2svg-lid glb2svg-band-\d"/);
+  });
+
+  it("fills each primitive of one mesh individually", async () => {
+    const svg = await renderGlbToSvg(createMultiPrimitiveFixture(), {
+      fills: "material",
+    });
+    expect(svg).toContain('fill="#bc0000"');
+    expect(svg).toContain('fill="#00bcff"');
+    expect(svg).not.toMatch(/<path [^>]*class="/);
+  });
+
+  it("keeps material fills in every sheet panel", async () => {
+    const svg = await renderGlbToSvg(createMultiPrimitiveFixture(), {
+      fills: "material",
+      views: ["front", "side"],
+    });
+    expect(countOccurrences(svg, /data-view="/g)).toBe(2);
+    expect(countOccurrences(svg, /fill="#bc0000"/g)).toBeGreaterThanOrEqual(2);
+    expect(countOccurrences(svg, /fill="#00bcff"/g)).toBeGreaterThanOrEqual(2);
+  });
+
+  it("produces byte-identical material output across two renders", async () => {
+    const options: RenderOptions = { fills: "material" };
+    const first = await renderGlbToSvg(createMultiPrimitiveFixture(), options);
+    const second = await renderGlbToSvg(createMultiPrimitiveFixture(), options);
+    expect(first).toBe(second);
   });
 
   it("composes a labelled sheet with four views in a grid", async () => {

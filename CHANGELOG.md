@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Material-based fills through the `fills` render option and the `--fills`
+  CLI flag. `material` mode converts each primitive's linear-sRGB
+  `pbrMetallicRoughness.baseColorFactor` to an sRGB hex fill and falls back to
+  the semantic-role color when a primitive has no usable material. The
+  default `role` mode output is unchanged.
+- `FillMode`, `DEFAULT_FILL_MODE`, `isFillMode`, `linearRgbaToHex` and
+  `linearToSrgb` exports.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

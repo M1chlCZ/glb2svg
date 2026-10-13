@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "../src/index.js";
-import { createStudioFixture } from "./glb-fixture.js";
+import { createMaterialFixture, createStudioFixture } from "./glb-fixture.js";
 
 function createIo(): CliIo & { stdoutText: string[]; stderrText: string[] } {
   const stdoutText: string[] = [];
@@ -81,6 +81,7 @@ describe("runCli", () => {
     expect(usage).toContain("--views");
     expect(usage).toContain("--layout");
     expect(usage).toContain("--dimensions");
+    expect(usage).toContain("--fills");
   });
 
   it("honors prefix and viewBox options", async () => {
@@ -183,6 +184,46 @@ describe("runCli", () => {
     expect(
       await runCli([input, join(directory, "d.svg"), "--views", ","], io),
     ).toBe(2);
+    expect(io.stderrText.length).toBeGreaterThan(0);
+  });
+
+  it("honors --fills material and keeps --fills role byte-identical to the default", async () => {
+    const directory = tempDirectory();
+    const input = writeInput(directory, createMaterialFixture());
+    const defaultOutput = join(directory, "default.svg");
+    const roleOutput = join(directory, "role.svg");
+    const materialOutput = join(directory, "material.svg");
+    const io = createIo();
+    expect(await runCli([input, defaultOutput], io)).toBe(0);
+    expect(await runCli([input, roleOutput, "--fills", "role"], io)).toBe(0);
+    expect(
+      await runCli([input, materialOutput, "--fills", "material"], io),
+    ).toBe(0);
+    const defaultSvg = readFileSync(defaultOutput, "utf8");
+    expect(readFileSync(roleOutput, "utf8")).toBe(defaultSvg);
+    const materialSvg = readFileSync(materialOutput, "utf8");
+    expect(materialSvg).toContain('fill="#bc0000"');
+    expect(materialSvg).toContain('fill="#00bcff"');
+    expect(materialSvg).not.toBe(defaultSvg);
+    expect(io.stderrText).toEqual([]);
+  });
+
+  it("rejects unknown fill modes with exit code 2", async () => {
+    const directory = tempDirectory();
+    const input = writeInput(directory, createMaterialFixture());
+    const io = createIo();
+    expect(
+      await runCli([input, join(directory, "a.svg"), "--fills", "banana"], io),
+    ).toBe(2);
+    expect(
+      await runCli([input, join(directory, "b.svg"), "--fills"], io),
+    ).toBe(2);
+    expect(
+      await runCli([input, join(directory, "c.svg"), "--fills", "role"], io),
+    ).toBe(0);
+    expect(
+      await runCli([input, join(directory, "d.svg"), "--fills=material"], io),
+    ).toBe(0);
     expect(io.stderrText.length).toBeGreaterThan(0);
   });
 });
