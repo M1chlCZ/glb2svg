@@ -1,6 +1,6 @@
 {
   "name": "glb2svg",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Headless GLB-to-SVG renderer that produces deterministic, themeable fallback artwork without a browser or GPU.",
   "type": "module",
   "license": "MIT",
